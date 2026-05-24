@@ -445,13 +445,109 @@ namespace Lab08
             image[index + 2] = blue;
         }
 
-        private static void SavePpmAsPngName(byte[] image, int width, int height, string path)
-        {
-            using FileStream stream = new FileStream(path, FileMode.Create);
-            using BinaryWriter writer = new BinaryWriter(stream);
+       private static void SavePpmAsPngName(byte[] image, int width, int height, string path)
+{
+    SavePng(image, width, height, path);
+}
 
-            writer.Write(Encoding.ASCII.GetBytes($"P6\n{width} {height}\n255\n"));
-            writer.Write(image);
+private static void SavePng(byte[] rgb, int width, int height, string path)
+{
+    using FileStream file = new FileStream(path, FileMode.Create);
+    using BinaryWriter writer = new BinaryWriter(file);
+
+    writer.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+    byte[] ihdr = new byte[13];
+    WriteInt(ihdr, 0, width);
+    WriteInt(ihdr, 4, height);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
+
+    WriteChunk(writer, "IHDR", ihdr);
+
+    using MemoryStream rawStream = new MemoryStream();
+
+    for (int y = 0; y < height; y++)
+    {
+        rawStream.WriteByte(0);
+
+        int rowStart = y * width * 3;
+        rawStream.Write(rgb, rowStart, width * 3);
+    }
+
+    byte[] rawData = rawStream.ToArray();
+
+    using MemoryStream compressedStream = new MemoryStream();
+
+    using (ZLibStream zlib = new ZLibStream(compressedStream, CompressionLevel.Optimal, true))
+    {
+        zlib.Write(rawData, 0, rawData.Length);
+    }
+
+    WriteChunk(writer, "IDAT", compressedStream.ToArray());
+    WriteChunk(writer, "IEND", Array.Empty<byte>());
+}
+
+private static void WriteChunk(BinaryWriter writer, string type, byte[] data)
+{
+    WriteInt(writer, data.Length);
+
+    byte[] typeBytes = Encoding.ASCII.GetBytes(type);
+    writer.Write(typeBytes);
+    writer.Write(data);
+
+    byte[] crcData = new byte[typeBytes.Length + data.Length];
+    Array.Copy(typeBytes, 0, crcData, 0, typeBytes.Length);
+    Array.Copy(data, 0, crcData, typeBytes.Length, data.Length);
+
+    uint crc = Crc32(crcData);
+    WriteInt(writer, unchecked((int)crc));
+}
+
+private static void WriteInt(BinaryWriter writer, int value)
+{
+    writer.Write(new[]
+    {
+        (byte)((value >> 24) & 255),
+        (byte)((value >> 16) & 255),
+        (byte)((value >> 8) & 255),
+        (byte)(value & 255)
+    });
+}
+
+private static void WriteInt(byte[] buffer, int offset, int value)
+{
+    buffer[offset] = (byte)((value >> 24) & 255);
+    buffer[offset + 1] = (byte)((value >> 16) & 255);
+    buffer[offset + 2] = (byte)((value >> 8) & 255);
+    buffer[offset + 3] = (byte)(value & 255);
+}
+
+private static uint Crc32(byte[] data)
+{
+    uint crc = 0xffffffff;
+
+    foreach (byte b in data)
+    {
+        crc ^= b;
+
+        for (int i = 0; i < 8; i++)
+        {
+            if ((crc & 1) == 1)
+            {
+                crc = (crc >> 1) ^ 0xedb88320;
+            }
+            else
+            {
+                crc >>= 1;
+            }
         }
+    }
+
+    return crc ^ 0xffffffff;
+}
     }
 }
